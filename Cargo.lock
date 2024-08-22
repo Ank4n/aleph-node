@@ -327,10 +327,12 @@ version = "14.0.0+dev"
 dependencies = [
  "frame-benchmarking",
  "frame-executive",
+ "frame-remote-externalities",
  "frame-support",
  "frame-system",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
+ "log",
  "pallet-aleph",
  "pallet-aleph-runtime-api",
  "pallet-aura",
@@ -376,9 +378,11 @@ dependencies = [
  "sp-session",
  "sp-staking",
  "sp-std",
+ "sp-tracing",
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
+ "tokio",
 ]
 
 [[package]]

@@ -75,6 +75,10 @@ substrate-wasm-builder = { workspace = true }
 
 [dev-dependencies]
 smallvec = { workspace = true }
+tokio = { features = ["macros", "rt-multi-thread"], version = "1.37.0", default-features = true }
+log = { workspace = true }
+sp-tracing = { git = "https://github.com/Cardinal-Cryptography/polkadot-sdk.git", branch = "aleph-v1.6.0",  default-features = false }
+remote-externalities = { git = "https://github.com/Cardinal-Cryptography/polkadot-sdk.git", branch = "aleph-v1.6.0", default-features = true, package = "frame-remote-externalities" }
 
 [features]
 default = ["std"]
@@ -129,6 +133,7 @@ std = [
     "sp-application-crypto/std",
     "pallet-safe-mode/std",
     "pallet-tx-pause/std",
+    "log/std",
 ]
 short_session = ["primitives/short_session"]
 try-runtime = [

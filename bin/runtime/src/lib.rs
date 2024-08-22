@@ -1566,3 +1566,66 @@ mod tests {
         assert!(lhs < rhs);
     }
 }
+
+#[cfg(all(test, feature = "try-runtime"))]
+mod remote_tests {
+    use super::*;
+    use remote_externalities::{
+        Builder, Mode, OfflineConfig, OnlineConfig, SnapshotConfig, Transport,
+    };
+    use std::env::var;
+    #[tokio::test]
+    async fn np_test() {
+        use frame_support::assert_ok;
+        sp_tracing::try_init_simple();
+
+        let transport: Transport = var("WS").unwrap_or("ws://127.0.0.1:9900".to_string()).into();
+        let maybe_state_snapshot: Option<SnapshotConfig> = var("SNAP").map(|s| s.into()).ok();
+        let mut ext = Builder::<Block>::default()
+            .mode(if let Some(state_snapshot) = maybe_state_snapshot {
+                Mode::OfflineOrElseOnline(
+                    OfflineConfig { state_snapshot: state_snapshot.clone() },
+                    OnlineConfig {
+                        transport,
+                        state_snapshot: Some(state_snapshot),
+                        pallets: vec![
+                            "staking".into(),
+                            "system".into(),
+                            "balances".into(),
+                            "nomination-pools".into(),
+                        ],
+                        ..Default::default()
+                    },
+                )
+            } else {
+                Mode::Online(OnlineConfig { transport, ..Default::default() })
+            })
+            .build()
+            .await
+            .unwrap();
+        ext.execute_with(|| {
+            // create an account with some balance
+            let alice = AccountId::from([1u8; 32]);
+            use frame_support::traits::Currency;
+            let _ = Balances::deposit_creating(&alice, 100_000 * TOKEN);
+
+            // iterate over all pools
+            pallet_nomination_pools::BondedPools::<Runtime>::iter_keys().for_each(|k| {
+
+            });
+
+
+            // iterate over all pool members
+            pallet_nomination_pools::PoolMembers::<Runtime>::iter_keys().for_each(|k| {});
+
+            log::info!(
+				target: "remote_test",
+				"Migration stats: success: {}, direct_stakers: {}, unexpected_errors: {}",
+				1,
+				1,
+				1
+			);
+        });
+
+    }
+}

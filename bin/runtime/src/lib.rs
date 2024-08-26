@@ -310,6 +310,7 @@ impl pallet_sudo::Config for Runtime {
 }
 
 pub struct SessionInfoImpl;
+
 impl SessionInfoProvider<AlephBlockNumber> for SessionInfoImpl {
     fn current_session() -> SessionIndex {
         pallet_session::CurrentIndex::<Runtime>::get()
@@ -800,11 +801,13 @@ pub enum ProxyType {
     Staking = 2,
     Nomination = 3,
 }
+
 impl Default for ProxyType {
     fn default() -> Self {
         Self::Any
     }
 }
+
 impl InstanceFilter<RuntimeCall> for ProxyType {
     fn filter(&self, c: &RuntimeCall) -> bool {
         match self {
@@ -890,6 +893,7 @@ parameter_types! {
 
 /// Calls that can bypass the safe-mode pallet.
 pub struct SafeModeWhitelistedCalls;
+
 impl Contains<RuntimeCall> for SafeModeWhitelistedCalls {
     fn contains(call: &RuntimeCall) -> bool {
         matches!(
@@ -923,6 +927,7 @@ impl pallet_safe_mode::Config for Runtime {
 /// Calls that can bypass the tx-pause pallet.
 /// We always allow system calls and timestamp since it is required for block production
 pub struct TxPauseWhitelistedCalls;
+
 impl Contains<RuntimeCallNameOf<Runtime>> for TxPauseWhitelistedCalls {
     fn contains(full_name: &RuntimeCallNameOf<Runtime>) -> bool {
         matches!(full_name.0.as_slice(), b"Sudo" | b"System" | b"Timestamp")
@@ -1570,62 +1575,67 @@ mod tests {
 #[cfg(all(test, feature = "try-runtime"))]
 mod remote_tests {
     use super::*;
+    use frame_support::assert_ok;
     use remote_externalities::{
         Builder, Mode, OfflineConfig, OnlineConfig, SnapshotConfig, Transport,
     };
+    use sp_core::H256;
     use std::env::var;
+    use std::str::FromStr;
+
     #[tokio::test]
     async fn np_test() {
-        use frame_support::assert_ok;
         sp_tracing::try_init_simple();
 
-        let transport: Transport = var("WS").unwrap_or("ws://127.0.0.1:9900".to_string()).into();
+        let transport: Transport = var("WS")
+            .unwrap_or("ws://127.0.0.1:9900".to_string())
+            .into();
         let maybe_state_snapshot: Option<SnapshotConfig> = var("SNAP").map(|s| s.into()).ok();
         let mut ext = Builder::<Block>::default()
-            .mode(if let Some(state_snapshot) = maybe_state_snapshot {
-                Mode::OfflineOrElseOnline(
-                    OfflineConfig { state_snapshot: state_snapshot.clone() },
-                    OnlineConfig {
-                        transport,
-                        state_snapshot: Some(state_snapshot),
-                        pallets: vec![
-                            "staking".into(),
-                            "system".into(),
-                            "balances".into(),
-                            "nomination-pools".into(),
-                        ],
-                        ..Default::default()
-                    },
+            .mode(Mode::Online(OnlineConfig {
+                at: H256::from_str(
+                    "0x86a3c1c8b42db988fb61afc12520a2ef280bf489a8165bf77b1b92659da4335e",
                 )
-            } else {
-                Mode::Online(OnlineConfig { transport, ..Default::default() })
-            })
+                .ok(),
+                transport,
+                state_snapshot: None,
+                child_trie: false,
+                pallets: vec![
+                    "NominationPools".to_owned(),
+                    "Staking".to_owned(),
+                    "System".to_owned(),
+                    "Balances".to_owned(),
+                ],
+                ..Default::default()
+            }))
             .build()
             .await
             .unwrap();
         ext.execute_with(|| {
             // create an account with some balance
-            let alice = AccountId::from([1u8; 32]);
+            let alice = AccountId::from_str("5Cj7YKMgwn4uCCHHqUnQUzAZg7iKiRExMBYCQVAXVYQmjXi1")
+                .expect("trust me bro!");
             use frame_support::traits::Currency;
             let _ = Balances::deposit_creating(&alice, 100_000 * TOKEN);
 
-            // iterate over all pools
-            pallet_nomination_pools::BondedPools::<Runtime>::iter_keys().for_each(|k| {
+            let pre_pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
+            let member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
+            log::info!(target: "remote_test", "pool {:?}; member {:?}", pre_pool_state, member);
 
-            });
+            assert_ok!(pallet_nomination_pools::Pallet::<Runtime>::unbond(
+                RuntimeOrigin::signed(alice.clone()),
+                alice.clone().into(),
+                6_475_614 * TOKEN
+            ));
 
-
-            // iterate over all pool members
-            pallet_nomination_pools::PoolMembers::<Runtime>::iter_keys().for_each(|k| {});
+            let post_pool_state = pallet_nomination_pools::BondedPool::<Runtime>::get(168);
 
             log::info!(
-				target: "remote_test",
-				"Migration stats: success: {}, direct_stakers: {}, unexpected_errors: {}",
-				1,
-				1,
-				1
-			);
+                target: "remote_test",
+                "Pre pool state: {:?}, post pool state: {:?}",
+                pre_pool_state,
+                post_pool_state,
+            );
         });
-
     }
 }

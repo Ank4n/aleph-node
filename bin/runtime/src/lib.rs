@@ -1548,3 +1548,71 @@ mod tests {
         assert!(lhs < rhs);
     }
 }
+
+#[cfg(all(test, feature = "try-runtime"))]
+mod remote_tests {
+    use super::*;
+    use frame_support::assert_ok;
+    use remote_externalities::{
+        Builder, Mode, OfflineConfig, OnlineConfig, SnapshotConfig, Transport,
+    };
+    use sp_core::H256;
+    use std::env::var;
+    use std::str::FromStr;
+
+    #[tokio::test]
+    async fn np_test() {
+        sp_tracing::try_init_simple();
+
+        let transport: Transport = var("WS")
+            .unwrap_or("ws://127.0.0.1:9900".to_string())
+            .into();
+        let maybe_state_snapshot: Option<SnapshotConfig> = var("SNAP").map(|s| s.into()).ok();
+        let mut ext = Builder::<Block>::default()
+            .mode(Mode::Online(OnlineConfig {
+                at: H256::from_str(
+                    "0x86a3c1c8b42db988fb61afc12520a2ef280bf489a8165bf77b1b92659da4335e",
+                )
+                    .ok(),
+                transport,
+                state_snapshot: None,
+                child_trie: false,
+                pallets: vec![
+                    "NominationPools".to_owned(),
+                    "Staking".to_owned(),
+                    "System".to_owned(),
+                    "Balances".to_owned(),
+                ],
+                ..Default::default()
+            }))
+            .build()
+            .await
+            .unwrap();
+        ext.execute_with(|| {
+            // create an account with some balance
+            let alice = AccountId::from_str("5Cj7YKMgwn4uCCHHqUnQUzAZg7iKiRExMBYCQVAXVYQmjXi1")
+                .expect("trust me bro!");
+            use frame_support::traits::Currency;
+            let _ = Balances::deposit_creating(&alice, 100_000 * TOKEN);
+
+            let pre_pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
+            let member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
+            log::info!(target: "remote_test", "pool {:?}; member {:?}", pre_pool_state, member);
+
+            assert_ok!(pallet_nomination_pools::Pallet::<Runtime>::unbond(
+                RuntimeOrigin::signed(alice.clone()),
+                alice.clone().into(),
+                6_475_614 * TOKEN
+            ));
+
+            let post_pool_state = pallet_nomination_pools::BondedPool::<Runtime>::get(168);
+
+            log::info!(
+                target: "remote_test",
+                "Pre pool state: {:?}, post pool state: {:?}",
+                pre_pool_state,
+                post_pool_state,
+            );
+        });
+    }
+}

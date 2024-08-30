@@ -323,6 +323,7 @@ impl pallet_sudo::Config for Runtime {
 }
 
 pub struct SessionInfoImpl;
+
 impl SessionInfoProvider<AlephBlockNumber> for SessionInfoImpl {
     fn current_session() -> SessionIndex {
         pallet_session::CurrentIndex::<Runtime>::get()
@@ -830,11 +831,13 @@ pub enum ProxyType {
     Staking = 2,
     Nomination = 3,
 }
+
 impl Default for ProxyType {
     fn default() -> Self {
         Self::Any
     }
 }
+
 impl InstanceFilter<RuntimeCall> for ProxyType {
     fn filter(&self, c: &RuntimeCall) -> bool {
         match self {
@@ -1568,51 +1571,75 @@ mod remote_tests {
             .unwrap_or("ws://127.0.0.1:9900".to_string())
             .into();
         let maybe_state_snapshot: Option<SnapshotConfig> = var("SNAP").map(|s| s.into()).ok();
+        let online_config = OnlineConfig {
+            at: H256::from_str(
+                "0x86a3c1c8b42db988fb61afc12520a2ef280bf489a8165bf77b1b92659da4335e",
+            )
+            .ok(),
+            transport,
+            state_snapshot: maybe_state_snapshot.clone(),
+            child_trie: false,
+            pallets: vec![
+                "NominationPools".to_owned(),
+                "Staking".to_owned(),
+                "System".to_owned(),
+                "Balances".to_owned(),
+            ],
+            ..Default::default()
+        };
+
         let mut ext = Builder::<Block>::default()
-            .mode(Mode::Online(OnlineConfig {
-                at: H256::from_str(
-                    "0x86a3c1c8b42db988fb61afc12520a2ef280bf489a8165bf77b1b92659da4335e",
+            .mode(if let Some(state_snapshot) = maybe_state_snapshot {
+                Mode::OfflineOrElseOnline(
+                    OfflineConfig {
+                        state_snapshot: state_snapshot.clone(),
+                    },
+                    online_config,
                 )
-                    .ok(),
-                transport,
-                state_snapshot: None,
-                child_trie: false,
-                pallets: vec![
-                    "NominationPools".to_owned(),
-                    "Staking".to_owned(),
-                    "System".to_owned(),
-                    "Balances".to_owned(),
-                ],
-                ..Default::default()
-            }))
+            } else {
+                Mode::Online(online_config)
+            })
             .build()
             .await
+            .map_err(|e| {
+                log::error!(target: "remote_test", "Error building externalities: {:?}", e);
+                e
+            })
             .unwrap();
+
         ext.execute_with(|| {
             // create an account with some balance
             let alice = AccountId::from_str("5Cj7YKMgwn4uCCHHqUnQUzAZg7iKiRExMBYCQVAXVYQmjXi1")
-                .expect("trust me bro!");
+                .unwrap();
+            let pool_account = AccountId::from_str("5EYCAe5ijiYfAXEth5DNwNcpyzpp8QvuTb2N7e26KYei8YvK").unwrap();
             use frame_support::traits::Currency;
             let _ = Balances::deposit_creating(&alice, 100_000 * TOKEN);
 
-            let pre_pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
-            let member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
-            log::info!(target: "remote_test", "pool {:?}; member {:?}", pre_pool_state, member);
+            let pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
+            let _member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
+            let points = pool_state.unwrap().points;
+            let balance = pallet_nomination_pools::Pallet::<Runtime>::api_points_to_balance(168, points);
+            let stake = pallet_staking::Ledger::<Runtime>::get(pool_account.clone()).unwrap();
+            log::info!(target: "remote_test", "[PRE-UNBOND] Stake total: {:?} and active {:?}", stake.total, stake.active);
+            log::info!(target: "remote_test", "[PRE-UNBOND] Point: {:?}, Balance: {:?}", points, balance);
 
+            let unbond_val = 10_496_715;
+            // let unbond_val = 6_475_614;
             assert_ok!(pallet_nomination_pools::Pallet::<Runtime>::unbond(
                 RuntimeOrigin::signed(alice.clone()),
                 alice.clone().into(),
-                6_475_614 * TOKEN
+                unbond_val * TOKEN
             ));
 
-            let post_pool_state = pallet_nomination_pools::BondedPool::<Runtime>::get(168);
+            log::info!(target: "remote_test", "unbonding {:?} from pool", unbond_val * TOKEN);
 
-            log::info!(
-                target: "remote_test",
-                "Pre pool state: {:?}, post pool state: {:?}",
-                pre_pool_state,
-                post_pool_state,
-            );
+            let pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
+            let _member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
+            let points = pool_state.unwrap().points;
+            let balance = pallet_nomination_pools::Pallet::<Runtime>::api_points_to_balance(168, points);
+            let stake = pallet_staking::Ledger::<Runtime>::get(pool_account.clone()).unwrap();
+            log::info!(target: "remote_test", "[POST-UNBOND] Stake total: {:?} and active {:?}", stake.total, stake.active);
+            log::info!(target: "remote_test", "[POST-UNBOND] Point: {:?}, Balance: {:?}", points, balance);
         });
     }
 }

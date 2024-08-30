@@ -1562,6 +1562,7 @@ mod remote_tests {
     use sp_core::H256;
     use std::env::var;
     use std::str::FromStr;
+    use pallet_nomination_pools::PoolId;
 
     #[tokio::test]
     async fn np_test() {
@@ -1608,35 +1609,36 @@ mod remote_tests {
             .unwrap();
 
         ext.execute_with(|| {
-            // create an account with some balance
-            let alice = AccountId::from_str("5Cj7YKMgwn4uCCHHqUnQUzAZg7iKiRExMBYCQVAXVYQmjXi1")
+            let pool_owner = AccountId::from_str("5Cj7YKMgwn4uCCHHqUnQUzAZg7iKiRExMBYCQVAXVYQmjXi1")
                 .unwrap();
+            let pool_id: PoolId = 168;
+            let unbond_val = 10_496_715;
             let pool_account = AccountId::from_str("5EYCAe5ijiYfAXEth5DNwNcpyzpp8QvuTb2N7e26KYei8YvK").unwrap();
             use frame_support::traits::Currency;
-            let _ = Balances::deposit_creating(&alice, 100_000 * TOKEN);
+            let _ = Balances::deposit_creating(&pool_owner, 100_000 * TOKEN);
 
-            let pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
-            let _member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
+            let pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(pool_id);
+            let _member = pallet_nomination_pools::PoolMembers::<Runtime>::get(pool_owner.clone());
             let points = pool_state.unwrap().points;
-            let balance = pallet_nomination_pools::Pallet::<Runtime>::api_points_to_balance(168, points);
+            let balance = pallet_nomination_pools::Pallet::<Runtime>::api_points_to_balance(pool_id, unbond_val * TOKEN);
             let stake = pallet_staking::Ledger::<Runtime>::get(pool_account.clone()).unwrap();
             log::info!(target: "remote_test", "[PRE-UNBOND] Stake total: {:?} and active {:?}", stake.total, stake.active);
             log::info!(target: "remote_test", "[PRE-UNBOND] Point: {:?}, Balance: {:?}", points, balance);
 
-            let unbond_val = 10_496_715;
+
             // let unbond_val = 6_475_614;
             assert_ok!(pallet_nomination_pools::Pallet::<Runtime>::unbond(
-                RuntimeOrigin::signed(alice.clone()),
-                alice.clone().into(),
+                RuntimeOrigin::signed(pool_owner.clone()),
+                pool_owner.clone().into(),
                 unbond_val * TOKEN
             ));
 
             log::info!(target: "remote_test", "unbonding {:?} from pool", unbond_val * TOKEN);
 
-            let pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(168);
-            let _member = pallet_nomination_pools::PoolMembers::<Runtime>::get(alice.clone());
+            let pool_state = pallet_nomination_pools::BondedPools::<Runtime>::get(pool_id);
+            let _member = pallet_nomination_pools::PoolMembers::<Runtime>::get(pool_owner.clone());
             let points = pool_state.unwrap().points;
-            let balance = pallet_nomination_pools::Pallet::<Runtime>::api_points_to_balance(168, points);
+            let balance = pallet_nomination_pools::Pallet::<Runtime>::api_points_to_balance(pool_id, points);
             let stake = pallet_staking::Ledger::<Runtime>::get(pool_account.clone()).unwrap();
             log::info!(target: "remote_test", "[POST-UNBOND] Stake total: {:?} and active {:?}", stake.total, stake.active);
             log::info!(target: "remote_test", "[POST-UNBOND] Point: {:?}, Balance: {:?}", points, balance);
